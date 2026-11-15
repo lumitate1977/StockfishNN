@@ -42,6 +42,7 @@ class MainMenu:
         self._section(body, "TRAIN & EVALUATE", [
             ("Continue Stockfish-guided training", lambda: self.launch_script("train.py"), "Resume the main training run from its saved checkpoint"),
             ("Pretrain from human PGN games", lambda: self.launch_script("pretrain_human.py"), "Learn from master games in data/pgn"),
+            ("Combine latest + human-pretrained models", self.merge_models, "Create models/combined.pt using a configurable weight blend"),
             ("Compare checkpoints against Stockfish", lambda: self.launch_script("evaluate_stockfish.py"), "Run the paired benchmark and save a CSV"),
         ])
         self._section(body, "GAME & FILE MANAGEMENT", [
@@ -102,6 +103,30 @@ class MainMenu:
         if games is None:
             return
         self._spawn("arena.py", "--white", white.strip(), "--black", black.strip(), "--games", str(games))
+
+
+    def merge_models(self) -> None:
+        weight = simpledialog.askfloat(
+            "Combine checkpoints",
+            "How much should human_pretrained.pt contribute?\n\n0.0 = only latest.pt\n0.5 = equal blend\n1.0 = only human_pretrained.pt",
+            initialvalue=0.5, minvalue=0.0, maxvalue=1.0, parent=self.root,
+        )
+        if weight is None:
+            return
+        output = filedialog.asksaveasfilename(
+            parent=self.root, title="Save combined checkpoint",
+            initialdir=str(ROOT / "models"), initialfile="combined.pt",
+            defaultextension=".pt", filetypes=[("PyTorch checkpoints", "*.pt")],
+        )
+        if not output:
+            return
+        self._spawn(
+            "merge_checkpoints.py",
+            "--latest", "models/latest.pt",
+            "--pretrained", "models/human_pretrained.pt",
+            "--output", output,
+            "--pretrained-weight", str(weight),
+        )
 
     def export_archive(self) -> None:
         source = filedialog.askopenfilename(
