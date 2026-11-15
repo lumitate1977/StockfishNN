@@ -322,12 +322,17 @@ class ReplayWindow:
             self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=color)
             piece = board.piece_at(square)
             if piece:
-                is_black_pawn = piece.color == chess.BLACK and piece.piece_type == chess.PAWN
+                # Use one font size and one exact center anchor for every piece.
+                # A previous black-pawn-only size/offset adjustment caused those
+                # glyphs to sit differently from the other pieces on some Windows
+                # Segoe UI Symbol font builds.
                 self.canvas.create_text(
                     (x0 + x1) / 2,
-                    (y0 + y1) / 2 - (3 if is_black_pawn else 0),
+                    (y0 + y1) / 2,
                     text=self.PIECES[piece.color][piece.piece_type],
-                    font=("Segoe UI Symbol", 38 if is_black_pawn else 42),
+                    font=("Segoe UI Symbol", 42),
+                    anchor="center",
+                    justify="center",
                     fill="#fffdf4" if piece.color == chess.WHITE else "#171717",
                 )
         for file_index in range(8):
