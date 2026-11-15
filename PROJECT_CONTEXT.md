@@ -31,6 +31,7 @@ The RX 6600 is not supported by standard CUDA PyTorch builds. Do not assume CUDA
 - `train.py` — Main Stockfish-guided training loop, replay training, rewards, evaluation, and checkpoint saving.
 - `game_archive.py` — Archives training games and game metrics.
 - `pretrain_human.py` — Separate supervised pretraining from human/master PGN files.
+- `evaluate_stockfish.py` — Paired benchmark comparing two checkpoints against the same Stockfish settings.
 - `play_gui.py` — GUI for playing against the network.
 - `replay.py` / `replay_gui.py` — Replay and game-review functionality.
 - `config.json` — Paths and project configuration.
@@ -182,7 +183,7 @@ data/
 
 The script supports standard `.pgn` and gzip-compressed `.pgn.gz` files and searches the input directory recursively. If a download is a ZIP archive, extract it first; ZIP input is not documented as supported.
 
-The proposed initial collection from PGN Mentor includes games by Carlsen, Caruana, Anand, and Fischer, with selected World Championship collections as optional additions. The user has not yet confirmed that these files have been downloaded into the local project.
+The proposed initial collection from PGN Mentor includes games by Carlsen, Caruana, Anand, and Fischer, with selected World Championship collections as optional additions. The user has now reported that PGN training has been completed locally. Exact local PGN filenames/counts and the saved output path have not yet been independently verified.
 
 PGN source previously recommended:
 https://www.pgnmentor.com/files.html
@@ -208,7 +209,7 @@ This is imitation learning from recorded games. It complements, but does not rep
 - It refuses to overwrite an existing output unless `--overwrite` is supplied.
 - It does not intentionally modify the main checkpoint or replay buffer.
 
-The script has been committed to GitHub, but it has **not yet been confirmed to run successfully on the user's local machine**. Do not describe pretraining as completed.
+The script was committed to GitHub. The user has now reported that PGN pretraining completed locally. Treat this as user-reported completion; the assistant has not independently inspected the local checkpoint or training log.
 
 ### Intended first-run commands
 
@@ -239,10 +240,35 @@ If `models/human_pretrained.pt` already exists, use a different `--output` path 
 - [x] Include legal-action masking in the supervised policy objective.
 - [x] Support PGN and .pgn.gz input.
 - [x] Save to a separate checkpoint by default.
-- [ ] Download a PGN collection into the user's local `data/pgn/` folder.
-- [ ] Run a small local smoke test and fix any errors.
-- [ ] Evaluate the pretrained checkpoint against the original model.
+- [x] User reports downloading PGNs and completing the local PGN pretraining run.
+- [x] User reports that the PGN training run completed; local logs/checkpoint have not been independently verified.
+- [x] Add a separate Stockfish evaluation script for comparing the original and PGN-pretrained checkpoints.
+- [ ] Run `evaluate_stockfish.py` locally and inspect the results.
 - [ ] Decide whether to use the pretrained checkpoint as the base for further Stockfish/RL training.
+
+### Comparing the original and PGN-pretrained checkpoints
+
+The repository now includes `evaluate_stockfish.py`. It loads two checkpoints independently and plays each against the same Stockfish engine configuration. The default comparison is:
+- Baseline: `models/latest.pt`
+- Candidate: `models/human_pretrained.pt`
+
+It alternates the NN's color across games, uses greedy NN move selection (temperature 0), applies the same Stockfish depth/skill/threads/hash to both checkpoints, and saves per-game results to `evaluation_results.csv`. It does not train or save either model. Unfinished games are reported separately and excluded from the completed-game score percentage.
+
+Default command from the project directory:
+
+```powershell
+python .\\evaluate_stockfish.py --games-per-model 10
+```
+
+For a larger sample after the initial check:
+
+```powershell
+python .\\evaluate_stockfish.py --games-per-model 30
+```
+
+The defaults read Stockfish skill, depth, threads, hash, and executable path from `config.json`. You can override these with `--depth`, `--skill`, `--threads`, and `--hash-mb`. Both checkpoints must exist locally. The baseline is expected to be the untouched pre-PGN `models/latest.pt`; do not run normal training or promote the candidate before completing this comparison.
+
+A small 10-game-per-model result is an initial signal, not a statistically strong rating estimate. If results are close, increase to 30–50 games per model and consider a second test at a stronger fixed Stockfish setting.
 
 ## 9. Chess knowledge curriculum
 
@@ -305,12 +331,11 @@ If the stash was created, do not blindly run `git stash pop`: the remote and loc
 ## 12. Immediate next steps
 
 1. Finish Git synchronization safely. Check whether the previous stash/pull completed.
-2. Download a small initial set of master PGNs and put them in `data/pgn/`.
-3. Inspect the actual local `pretrain_human.py` arguments and run a small smoke test before the larger 100,000-position run.
-4. Confirm that `models/latest.pt` and the replay buffer remain unchanged after PGN pretraining.
-5. Evaluate the original model and human-pretrained model under the same conditions (same opponent, colors, time/depth, and number of games).
-6. Only if the pretrained model performs acceptably, decide whether to use it as the starting point for continued Stockfish-guided training.
-7. After this is validated, prioritize tactical puzzle training and then endgame knowledge.
+2. Run `python .\\evaluate_stockfish.py --games-per-model 10` locally to compare `models/latest.pt` against `models/human_pretrained.pt`.
+3. Review `evaluation_results.csv`; if results are close or noisy, repeat with 30–50 games per model.
+4. Confirm the baseline checkpoint is still the original pre-PGN model and that the replay buffer remains unchanged.
+5. Only if the pretrained checkpoint performs acceptably, decide whether to use it as the starting point for continued Stockfish-guided training.
+6. After this is validated, prioritize tactical puzzle training and then endgame knowledge.
 
 ## 13. User preferences and implementation rules
 
