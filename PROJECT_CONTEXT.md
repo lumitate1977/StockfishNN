@@ -651,3 +651,55 @@ The first output should be a new file, `models/unified.pt`. It must not overwrit
 A mixed-source trainer should prevent the large puzzle CSV from overwhelming the smaller sources by sampling a controlled amount from each category per epoch/batch. It should report validation results separately by source so gains in one area do not hide forgetting in another. Puzzle validation should split by puzzle identity, not by individual positions from the same puzzle.
 
 The unified trainer has not yet been implemented or run. The next development step is to add this separate trainer and update this context again with its exact command-line options. No local files have been changed by the GitHub context update.
+
+
+## 19. Unified mixed-source trainer added (2026-11-14)
+
+Added train_unified.py in commit 3915283bb6c04a8accb84ec26f6c7057337204e9.
+
+### Purpose and method
+This is single-model fine-tuning, not checkpoint averaging. It initializes ChessNet from models/human_pretrained.pt and trains the same model on balanced source-specific batches. It preserves the 18-plane encoder, 20,480-action policy, and value head.
+
+Supported sources:
+- human_pgn: completed master-game PGNs; move policy targets plus game-result value targets. Validation is split by game.
+- mate_puzzles: Lichess mate-in-1 through mate-in-5 themes; accepts complete solution lines ending in checkmate.
+- tactics_puzzles: recognized tactical themes such as forks, pins, skewers, discovered attacks, sacrifices, and defensive moves.
+- endgame_puzzles: recognized endgame themes such as rook, bishop, knight, pawn, and queen endgames.
+- replay: data/replay_buffer.npz; policy and value targets are used. The loader rechecks array dimensions, offset structure, finite values, action ranges, and that every teacher move is legal in its position.
+
+Puzzle samples are split by puzzle ID, so positions from one puzzle cannot leak across train and validation. Puzzle positions train the policy head only; they do not invent value labels. PGN and replay sources train both policy and value heads.
+
+Each epoch samples the configured number of positions from each available source, rather than concatenating datasets and letting the large puzzle database dominate. Validation top-1 accuracy is reported separately for each source; value MAE is reported where real value targets exist.
+
+### Default run
+
+From the project root in PowerShell:
+
+```powershell
+python .\train_unified.py
+```
+
+Defaults: base models/human_pretrained.pt; output models/unified.pt; PGN directory data/pgn; puzzle CSV data/puzzles/lichess_db_puzzle.csv; replay data/replay_buffer.npz (skipped with --no-replay); scan up to 100,000 puzzle CSV rows and 100,000 PGN positions; sample 10,000 positions per source per epoch; 3 epochs; batch size 128; learning rate 0.00001; 10% validation split.
+
+For a smaller first smoke test:
+
+```powershell
+python .\train_unified.py --puzzle-rows 5000 --max-pgn-positions 10000 --samples-per-source 1000 --epochs 1 --output models\unified_test.pt
+```
+
+If the output already exists, choose another output name or pass --overwrite only when intentionally replacing that output. The script protects latest.pt, human_pretrained.pt, and mate_pretrained.pt as output targets. It never writes to input datasets.
+
+### Important interpretation and limitations
+- This is the first implementation and has been committed but has NOT yet been run or syntax-tested on the user's Windows PC. Run the small smoke test before the default run and share any traceback.
+- Puzzle category sets are explicit theme allowlists. Unlisted Lichess themes are ignored; multi-theme puzzles are assigned by priority mate, then endgame, then tactics.
+- Tactic/endgame puzzle lines are policy demonstrations; only mate-themed lines are required to end in checkmate.
+- Equal sample counts balance example counts, not difficulty or information content.
+- Validation top-1 is exact move imitation under a legal-move mask. It is not a chess-strength rating and does not prove independent tactical or forced-mate calculation.
+- The trainer does not use replay_buffer_eval_v2.npz or replay_buffer_move_game_v3.npz because both failed earlier read-only decompression checks. Preserve them untouched.
+- Existing checkpoints, PGN archives, puzzle CSV, and replay files remain preserved. The new output is separate at models/unified.pt.
+
+### Next steps
+1. Safely sync train_unified.py and this context update to the local checkout. Preserve the previous local stash and untracked data/evaluation file; inspect git status --short --branch and git stash list before pulling. Do not use git reset --hard, git clean, or blindly pop the stash.
+2. Run the small smoke test and confirm each expected source loads and models/unified_test.pt is saved.
+3. If successful, run the default command to create models/unified.pt.
+4. Benchmark unified.pt against human_pretrained.pt, mate_pretrained.pt, and latest.pt with identical arena settings before choosing a default model.
