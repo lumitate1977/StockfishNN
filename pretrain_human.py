@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import gzip
-import random
 import time
 from pathlib import Path
 from typing import TextIO
@@ -17,7 +16,7 @@ from chess_ai import ACTION_SIZE, ROOT, ChessNet, encode_board, load_config, mov
 
 
 def open_pgn(path: Path) -> TextIO:
-    if path.suffix.lower() == ".gz":
+    if path.name.lower().endswith(".pgn.gz"):
         return gzip.open(path, "rt", encoding="utf-8-sig", errors="replace")
     return path.open("r", encoding="utf-8-sig", errors="replace")
 
@@ -50,10 +49,12 @@ def collect_positions(
     max_games: int,
     max_positions: int,
     min_elo: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
+) -> tuple[np.ndarray, ...]:
     positions: list[np.ndarray] = []
     actions: list[int] = []
     values: list[float] = []
+    offsets = [0]
+    legal_flat: list[int] = []
     games_seen = 0
     games_used = 0
 
@@ -84,14 +85,19 @@ def collect_positions(
                 board = game.board()
                 game_added = 0
                 for move in game.mainline_moves():
-                    if move not in board.legal_moves:
+                    legal_moves = list(board.legal_moves)
+                    if move not in legal_moves:
                         break
                     value = game_value(result, board.turn)
                     if value is None:
                         break
+                    legal_indices = [move_to_index(candidate) for candidate in legal_moves]
+                    target_action = move_to_index(move)
                     positions.append(encode_board(board))
-                    actions.append(move_to_index(move))
+                    actions.append(target_action)
                     values.append(value)
+                    legal_flat.extend(legal_indices)
+                    offsets.append(len(legal_flat))
                     game_added += 1
                     board.push(move)
                     if len(positions) >= max_positions:
@@ -113,8 +119,9 @@ def collect_positions(
         np.stack(positions).astype(np.uint8, copy=False),
         np.asarray(actions, dtype=np.int64),
         np.asarray(values, dtype=np.float32),
-        games_seen,
-        games_used,
+        np.asarray(offsets, dtype=np.int64),
+        np.asarray(legal_flat, dtype=np.int32),
+        np.asarray([games_seen, games_used], dtype=np.int64),
     )
 
 
@@ -124,6 +131,8 @@ def train_epoch(
     positions: np.ndarray,
     actions: np.ndarray,
     values: np.ndarray,
+    offsets: np.ndarray,
+    legal_flat: np.ndarray,
     device: torch.device,
     batch_size: int,
     rng: np.random.Generator,
@@ -136,12 +145,23 @@ def train_epoch(
 
     for start in range(0, len(order), batch_size):
         indices = order[start : start + batch_size]
-        x = torch.from_numpy(positions[indices].astype(np.float32)).to(device)
+        count = len(indices)
+        x = torch.from_numpy(positions[indices].astype(np.float32, copy=False)).to(device)
         target_actions = torch.from_numpy(actions[indices]).to(device=device, dtype=torch.long)
-        target_values = torch.from_numpy(values[indices]).to(device)
+        target_values = torch.from_numpy(values[indices]).to(device=device, dtype=torch.float32)
+
+        starts = offsets[indices]
+        ends = offsets[indices + 1]
+        counts = ends - starts
+        row_ids = np.repeat(np.arange(count, dtype=np.int64), counts)
+        legal_ids = np.concatenate([legal_flat[a:b] for a, b in zip(starts, ends)])
+        legal_mask_np = np.zeros((count, ACTION_SIZE), dtype=np.bool_)
+        legal_mask_np[row_ids, legal_ids] = True
+        legal_mask = torch.from_numpy(legal_mask_np).to(device)
 
         policy_logits, value_prediction = model(x)
-        policy_loss = F.cross_entropy(policy_logits, target_actions)
+        masked_logits = policy_logits.masked_fill(~legal_mask, -1e9)
+        policy_loss = F.cross_entropy(masked_logits, target_actions)
         value_loss = F.mse_loss(value_prediction, target_values)
         loss = policy_loss + 0.25 * value_loss
 
@@ -190,7 +210,7 @@ def main() -> None:
     if not output_path.is_absolute():
         output_path = ROOT / output_path
     if base_path.resolve() == output_path.resolve():
-        parser.error("Output must be different from the base checkpoint; latest.pt is protected")
+        parser.error("Output must be different from the base checkpoint; models/latest.pt is protected")
     if output_path.exists() and not args.overwrite:
         parser.error(f"Output already exists: {output_path}. Choose another --output or pass --overwrite.")
 
@@ -207,7 +227,6 @@ def main() -> None:
             f"Starting checkpoint not found: {base_path}. Train the NN first or pass --base-checkpoint."
         )
 
-    random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.set_num_threads(max(1, args.torch_threads))
@@ -215,14 +234,16 @@ def main() -> None:
 
     print(f"PGN files: {len(files)}")
     print(f"Starting from existing model: {base_path}")
-    positions, actions, values, games_seen, games_used = collect_positions(
+    positions, actions, values, offsets, legal_flat, counts = collect_positions(
         files, args.max_games, args.max_positions, args.min_elo
     )
+    games_seen, games_used = (int(counts[0]), int(counts[1]))
     print(
         f"Collected {len(positions):,} positions from {games_used:,} usable games "
         f"({games_seen:,} games read)."
     )
     print(f"Training device: {device} | samples: {len(positions):,}")
+    print("Illegal moves are masked out of the policy loss for every position.")
 
     checkpoint = torch.load(base_path, map_location=device, weights_only=False)
     if "model_state" not in checkpoint:
@@ -235,7 +256,8 @@ def main() -> None:
     started = time.time()
     for epoch in range(1, args.epochs + 1):
         policy_loss, value_loss = train_epoch(
-            model, optimizer, positions, actions, values, device, args.batch_size, rng
+            model, optimizer, positions, actions, values, offsets, legal_flat,
+            device, args.batch_size, rng
         )
         print(
             f"Epoch {epoch}/{args.epochs} | policy loss {policy_loss:.5f} "
@@ -249,7 +271,7 @@ def main() -> None:
             "pretraining": "human_pgn",
             "pretraining_epochs": args.epochs,
             "pretraining_positions": int(len(positions)),
-            "pretraining_games": int(games_used),
+            "pretraining_games": games_used,
             "pretraining_source": str(source),
             "base_checkpoint": str(base_path),
             "learning_rate": args.learning_rate,
@@ -267,7 +289,7 @@ def main() -> None:
     print(f"Human-game pretraining checkpoint saved: {output_path}")
     print(f"Elapsed: {time.time() - started:.1f}s")
     print("Your original models/latest.pt and replay buffer were not modified.")
-    print("To use this model later, explicitly copy it to a separate play/config path or promote it after evaluation.")
+    print("Evaluate this checkpoint before deciding whether to promote it for normal training/play.")
 
 
 if __name__ == "__main__":
