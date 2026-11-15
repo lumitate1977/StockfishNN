@@ -43,7 +43,7 @@ class MainMenu:
             ("Continue Stockfish-guided training", lambda: self.launch_script("train.py"), "Resume the main training run from its saved checkpoint"),
             ("Pretrain from human PGN games", lambda: self.launch_script("pretrain_human.py"), "Learn from master games in data/pgn"),
             ("Pretrain checkmates from puzzles", lambda: self.launch_script("pretrain_checkmates.py"), "Learn mate-in-1, mate-in-2, and mate-in-3 patterns"),
-            ("Combine latest + human-pretrained models", self.merge_models, "Create models/combined.pt using a configurable weight blend"),
+            ("Combine selected models (weighted)", self.merge_models, "Choose any number of checkpoints and set their blend percentages"),
             ("Compare checkpoints against Stockfish", lambda: self.launch_script("evaluate_stockfish.py"), "Run the paired benchmark and save a CSV"),
         ])
         self._section(body, "GAME & FILE MANAGEMENT", [
@@ -105,29 +105,111 @@ class MainMenu:
             return
         self._spawn("arena.py", "--white", white.strip(), "--black", black.strip(), "--games", str(games))
 
-
     def merge_models(self) -> None:
-        weight = simpledialog.askfloat(
-            "Combine checkpoints",
-            "How much should human_pretrained.pt contribute?\n\n0.0 = only latest.pt\n0.5 = equal blend\n1.0 = only human_pretrained.pt",
-            initialvalue=0.5, minvalue=0.0, maxvalue=1.0, parent=self.root,
-        )
-        if weight is None:
+        models_dir = ROOT / "models"
+        models_dir.mkdir(parents=True, exist_ok=True)
+        available = sorted(models_dir.glob("*.pt"))
+        if len(available) < 2:
+            messagebox.showerror("Combine models", "At least two .pt checkpoints must exist in the models folder.", parent=self.root)
             return
-        output = filedialog.asksaveasfilename(
-            parent=self.root, title="Save combined checkpoint",
-            initialdir=str(ROOT / "models"), initialfile="combined.pt",
-            defaultextension=".pt", filetypes=[("PyTorch checkpoints", "*.pt")],
-        )
-        if not output:
-            return
-        self._spawn(
-            "merge_checkpoints.py",
-            "--latest", "models/latest.pt",
-            "--pretrained", "models/human_pretrained.pt",
-            "--output", output,
-            "--pretrained-weight", str(weight),
-        )
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Combine neural-network checkpoints")
+        dialog.configure(bg=BG)
+        dialog.geometry("680x650")
+        dialog.minsize(580, 480)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        tk.Label(dialog, text="Choose checkpoints and blend percentages",
+                 bg=BG, fg=FG, font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=18, pady=(16, 4))
+        tk.Label(dialog, text="Select at least two models. Their percentages must total exactly 100%.",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=18, pady=(0, 10))
+
+        canvas_frame = tk.Frame(dialog, bg=BG)
+        canvas_frame.pack(fill="both", expand=True, padx=14, pady=4)
+        canvas = tk.Canvas(canvas_frame, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        entries = []
+        default_paths = ["latest.pt", "human_pretrained.pt", "mate_pretrained.pt"]
+        existing_defaults = [p for p in available if p.name in default_paths]
+        other_paths = [p for p in available if p not in existing_defaults]
+        ordered = existing_defaults + other_paths
+        for index, path in enumerate(ordered):
+            default_selected = path.name in default_paths and path.name in {
+                "latest.pt", "human_pretrained.pt", "mate_pretrained.pt"
+            }
+            selected = tk.BooleanVar(value=default_selected)
+            weight = tk.IntVar(value=34 if index == 0 else 33 if index < 3 else 0)
+            row = tk.Frame(inner, bg=PANEL, padx=10, pady=8)
+            row.pack(fill="x", pady=3)
+            check = tk.Checkbutton(row, text=path.name, variable=selected, bg=PANEL, fg=FG,
+                                   selectcolor=BG, activebackground=PANEL, activeforeground=FG,
+                                   font=("Segoe UI", 10, "bold"))
+            check.pack(anchor="w")
+            value_label = tk.Label(row, text=f"{weight.get()}%", bg=PANEL, fg="#93c5fd", width=6)
+            value_label.pack(side="right")
+            scale = tk.Scale(row, from_=0, to=100, orient="horizontal", variable=weight,
+                             showvalue=False, resolution=1, length=440, bg=PANEL, fg=FG,
+                             troughcolor="#46505e", highlightthickness=0,
+                             command=lambda value, label=value_label: label.config(text=f"{int(float(value))}%"))
+            scale.pack(fill="x")
+            entries.append((path, selected, weight))
+
+        total_var = tk.StringVar()
+        status_var = tk.StringVar()
+        def update_total(*_args):
+            total = sum(weight.get() for _path, selected, weight in entries if selected.get())
+            count = sum(1 for _path, selected, _weight in entries if selected.get())
+            total_var.set(f"Selected: {count} models     Total: {total}%")
+            status_var.set("Percentages must total 100%." if total != 100 else "Ready to combine.")
+        for _path, selected, weight in entries:
+            selected.trace_add("write", update_total)
+            weight.trace_add("write", update_total)
+        update_total()
+
+        footer = tk.Frame(dialog, bg=BG, padx=18, pady=12)
+        footer.pack(fill="x")
+        tk.Label(footer, textvariable=total_var, bg=BG, fg=FG,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(footer, textvariable=status_var, bg=BG, fg=MUTED).pack(anchor="w", pady=(2, 8))
+
+        def combine():
+            chosen = [(path, weight.get()) for path, selected, weight in entries if selected.get()]
+            if len(chosen) < 2:
+                messagebox.showerror("Combine models", "Select at least two checkpoints.", parent=dialog)
+                return
+            if sum(weight for _path, weight in chosen) != 100:
+                messagebox.showerror("Combine models", "Selected percentages must add up to exactly 100%.", parent=dialog)
+                return
+            if sum(weight > 0 for _path, weight in chosen) < 2:
+                messagebox.showerror("Combine models", "At least two selected models need a non-zero percentage.", parent=dialog)
+                return
+            output = filedialog.asksaveasfilename(
+                parent=dialog, title="Save combined checkpoint",
+                initialdir=str(models_dir), initialfile="combined.pt",
+                defaultextension=".pt", filetypes=[("PyTorch checkpoints", "*.pt")],
+            )
+            if not output:
+                return
+            args = []
+            for path, weight in chosen:
+                args.extend(["--model", f"{path}={weight}"])
+            args.extend(["--output", output])
+            dialog.destroy()
+            self._spawn("merge_checkpoints.py", *args)
+
+        buttons = tk.Frame(footer, bg=BG)
+        buttons.pack(anchor="e")
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(buttons, text="Combine models", command=combine).pack(side="right")
 
     def export_archive(self) -> None:
         source = filedialog.askopenfilename(
