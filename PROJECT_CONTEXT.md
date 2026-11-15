@@ -392,3 +392,65 @@ If the stash was created, do not blindly run `git stash pop`: the remote and loc
 - Do not claim code has been tested locally unless the user has actually run it or a suitable test environment was used.
 - Do not claim GitHub edits have been pulled onto the user's PC.
 - Whenever the project changes, update this `PROJECT_CONTEXT.md` so it accurately records the current state, what is implemented, what is untested, and the next steps.
+
+
+## 14. Unified control center and PGN export (2026-11-14)
+
+A central Windows launcher and archive-export utility have been added to the GitHub repository.
+
+### New files
+- `main_menu.py` — Tkinter control center for the project.
+- `main.bat` — Windows launcher. It prefers `.venv\\Scripts\\python.exe` when a project virtual environment exists, otherwise uses `python`.
+- `export_pgn.py` — Export archived games into standard PGN files.
+
+### Main menu features
+The menu groups project functions into:
+- **Play & Review:** open the Play GUI, open the replay viewer, or configure an arena match.
+- **Train & Evaluate:** launch the main Stockfish-guided training script, human-PGN pretraining, and checkpoint-vs-Stockfish evaluation.
+- **Game & File Management:** export archived games, open the games folder, open the models folder, and open the project folder.
+
+Arena launch asks for White and Black checkpoint paths (or `stockfish`) and the number of games. The play GUI retains its own checkpoint chooser. The menu launches scripts in separate console windows where applicable, so training/arena output remains visible.
+
+Keyboard shortcuts in the menu:
+- Ctrl+P: Play
+- Ctrl+R: Replay
+- Ctrl+E: Export PGN
+- Esc: Close the menu
+
+### PGN extraction/export
+The menu's **Export archived games to PGN** action:
+1. Lets the user choose an existing archive, normally `games/all_games.pgn` or `games/good_games.pgn`.
+2. Offers either one combined PGN file or separate PGN files for every archived game.
+3. Asks for the output filename or destination folder.
+4. Refuses to overwrite existing files by default.
+
+Command-line examples from the project root:
+
+```powershell
+# Export the full archive into one standalone PGN
+python .\\export_pgn.py --source games\\all_games.pgn --output exports\\all_games.pgn
+
+# Export one PGN file per game
+python .\\export_pgn.py --source games\\all_games.pgn --output exports\\individual --split
+
+# Export only the curated good-games archive
+python .\\export_pgn.py --good-games --output exports\\good_games.pgn
+```
+
+The exporter preserves PGN headers, move notation, variations, and comments, including Stockfish evaluation/CPL annotations stored in the games. It reads archives and writes new output files; it does not delete or modify the original archives, checkpoints, or replay buffer.
+
+### Local setup / launch
+After syncing the GitHub changes, run from PowerShell in the project directory:
+
+```powershell
+.\main.bat
+```
+
+If dependencies have not yet been installed in the active Python environment, install them with:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+### Verification status
+These new files have been committed to GitHub but have not been executed on the user's Windows PC. The user must pull the changes locally before `main.bat` will exist in their local project. First smoke test: open the menu, launch Replay, then export a small archive to a new folder and verify the PGN opens in a chess PGN viewer.
