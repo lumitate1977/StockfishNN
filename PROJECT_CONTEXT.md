@@ -497,3 +497,52 @@ Updated `replay.py` to remove the black-pawn-specific font-size reduction and ve
 - This changes only board rendering; PGN data, move positions, evaluations, and archives are untouched.
 - Committed to GitHub in commit `5f96c18ca6c421e1d0d5f840eca6cc35d1b8dd61`.
 - Not yet verified on the user's Windows PC. Pull the update and reopen Replay to check the pawn alignment.
+
+
+## 17. Checkmate-puzzle pretraining (2026-11-14)
+
+Added \`pretrain_checkmates.py\` for a separate supervised tactical curriculum using the Lichess puzzle database CSV format.
+
+### What it teaches
+- Mate-in-one, mate-in-two, and mate-in-three patterns by default (Lichess themes \`mateIn1\`, \`mateIn2\`, \`mateIn3\`).
+- Learner-to-move positions from the puzzle solution line.
+- The policy head is trained to select the solution move, with illegal actions masked from cross-entropy.
+- Only complete solution lines ending in actual checkmate are accepted.
+- The puzzle's initial opponent setup move is skipped by default, matching the standard Lichess puzzle CSV convention.
+- Validation split is by puzzle, not by individual position, to avoid positions from the same puzzle leaking between training and validation.
+
+The script reuses the existing 18-plane encoder, move indexing, and ChessNet architecture. It does not change the model architecture or replay buffer. It starts from \`models/human_pretrained.pt\` by default, falling back to the configured model checkpoint if that file is absent, and writes a separate \`models/mate_pretrained.pt\`. It refuses to overwrite protected source checkpoints. The output can be loaded in the Play GUI with **Load checkpoint…**.
+
+### Dataset
+Download the Lichess puzzle database CSV from:
+https://database.lichess.org/#puzzles
+
+Place the decompressed CSV at:
+\`data/puzzles/lichess_db_puzzle.csv\`
+
+The compressed database is very large; extract the CSV before running the script and ensure sufficient disk space. The script streams rows from the CSV and defaults to processing at most 50,000 rows (not necessarily 50,000 usable mate puzzles).
+
+### Run
+From PowerShell in the project directory:
+
+\`\`\`powershell
+New-Item -ItemType Directory -Force .\\data\\puzzles
+python .\\pretrain_checkmates.py --puzzles .\\data\\puzzles\\lichess_db_puzzle.csv --base-checkpoint models\\human_pretrained.pt --output models\\mate_pretrained.pt --max-puzzles 50000 --epochs 4
+\`\`\`
+
+For a smaller first smoke test:
+
+\`\`\`powershell
+python .\\pretrain_checkmates.py --max-puzzles 2000 --epochs 1 --output models\\mate_test.pt
+\`\`\`
+
+If the CSV's FEN is already after the opponent setup move, pass \`--no-skip-setup-move\`. The default follows the standard Lichess CSV convention and skips the first listed UCI move. The script reports validation top-1 accuracy on held-out puzzles.
+
+### Safety and limitations
+- Existing \`latest.pt\`, \`human_pretrained.pt\`, merged checkpoints, historical checkpoints, and replay data are not modified.
+- Default output is a new file, \`models/mate_pretrained.pt\`; if it exists, choose another output or explicitly use \`--overwrite\` only for that separate output.
+- This is supervised puzzle imitation, not search. It teaches candidate mating moves from puzzle solutions, but does not itself guarantee forced-mate calculation or improve general chess strength.
+- The first run should be a small smoke test. Check the number of accepted puzzles and validation accuracy before scaling up.
+- The script and menu integration are committed to GitHub but have not been run on the user's Windows PC.
+
+The main menu now includes **Pretrain checkmates from puzzles** under Train & Evaluate.
