@@ -1,0 +1,10 @@
+{
+  "stockfish_path": "C:/Users/thoma/Downloads/stockfish/stockfish-windows-x86-64-universal.exe",
+  "stockfish_skill": 5,
+  "stockfish_threads": 2,
+  "stockfish_hash_mb": 256,
+  "training_depth": 6,
+  "model_path": "models/latest.pt",
+  "replay_path": "data/replay_buffer.npz",
+  "good_game_max_avg_cpl": 60
+}

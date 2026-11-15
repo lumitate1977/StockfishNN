@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+models/*.pt
+data/*.npz
+training_log.csv
+games/*.pgn
