@@ -489,3 +489,11 @@ The main menu now includes **Combine latest + human-pretrained models** under Tr
 This is parameter interpolation, not a true knowledge-preserving merge and not guaranteed to improve strength. Although both checkpoints use the same ChessNet architecture and likely share a common initialization, their training paths may have diverged. Benchmark `models/combined.pt` against both source checkpoints before using it as the primary model. Keep `models/latest.pt`, `models/human_pretrained.pt`, and replay data unchanged until the merged model proves better.
 
 The new script and menu integration are committed to GitHub but have not been executed on the user's PC.
+
+## 16. Replay board black-pawn alignment fix (2026-11-14)
+
+Updated `replay.py` to remove the black-pawn-specific font-size reduction and vertical offset. Every chess piece is now drawn with the same Segoe UI Symbol font size (42) and the same exact square-center anchor, with explicit center anchoring/justification. The prior special-case adjustment could make black pawn glyphs appear displaced on some Windows font builds.
+
+- This changes only board rendering; PGN data, move positions, evaluations, and archives are untouched.
+- Committed to GitHub in commit `5f96c18ca6c421e1d0d5f840eca6cc35d1b8dd61`.
+- Not yet verified on the user's Windows PC. Pull the update and reopen Replay to check the pawn alignment.
