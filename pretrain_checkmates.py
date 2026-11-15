@@ -54,7 +54,7 @@ def parse_puzzle(row: dict[str, str], skip_setup_move: bool, allowed_themes: set
 
 
 def load_dataset(path: Path, max_puzzles: int, skip_setup_move: bool, allowed_themes: set[str]):
-    positions, actions, legal_lists = [], [], []
+    positions, actions, legal_lists, puzzle_ids = [], [], [], []
     puzzles_seen = puzzles_used = 0
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -69,6 +69,7 @@ def load_dataset(path: Path, max_puzzles: int, skip_setup_move: bool, allowed_th
                     positions.append(position)
                     actions.append(action)
                     legal_lists.append(legal)
+                    puzzle_ids.append(puzzles_used - 1)
             if max_puzzles > 0 and puzzles_seen >= max_puzzles:
                 break
 
@@ -86,6 +87,7 @@ def load_dataset(path: Path, max_puzzles: int, skip_setup_move: bool, allowed_th
         np.asarray(actions, dtype=np.int64),
         np.asarray(offsets, dtype=np.int64),
         np.asarray(legal_flat, dtype=np.int32),
+        np.asarray(puzzle_ids, dtype=np.int32),
         puzzles_seen,
         puzzles_used,
     )
@@ -202,18 +204,20 @@ def main():
 
     print(f"Reading mate puzzles from: {data_path}")
     data = load_dataset(data_path, args.max_puzzles, not args.no_skip_setup_move, themes)
-    positions, actions, offsets, legal_flat, puzzles_seen, puzzles_used = data
+    positions, actions, offsets, legal_flat, puzzle_ids, puzzles_seen, puzzles_used = data
     print(f"Loaded {puzzles_used:,} complete mate puzzles from {puzzles_seen:,} CSV rows.")
     print(f"Training samples (solver-to-move positions): {len(positions):,}")
     print(f"Device: {device} | base checkpoint: {base_path}")
 
     rng = np.random.default_rng(args.seed)
-    order = rng.permutation(len(positions))
-    val_count = int(len(order) * args.validation_fraction)
-    if val_count:
-        val_ids, train_ids = order[:val_count], order[val_count:]
-    else:
-        val_ids, train_ids = np.array([], dtype=np.int64), order
+    unique_puzzles = rng.permutation(np.unique(puzzle_ids))
+    val_puzzle_count = int(len(unique_puzzles) * args.validation_fraction)
+    val_puzzles = set(unique_puzzles[:val_puzzle_count].tolist())
+    val_mask = np.isin(puzzle_ids, list(val_puzzles))
+    val_ids = np.flatnonzero(val_mask)
+    train_ids = np.flatnonzero(~val_mask)
+    if not len(train_ids):
+        raise RuntimeError("Not enough distinct puzzles for the requested validation split; lower --validation-fraction.")
     train_data = (positions[train_ids], actions[train_ids])
     train_offsets_parts = [offsets[i:i + 2] for i in train_ids]
     train_legal_lists = [legal_flat[a:b] for a, b in
@@ -229,8 +233,6 @@ def main():
     model.load_state_dict(checkpoint["model_state"])
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)
 
-    print(f"Initial validation top-1 accuracy: " +
-          (f"{evaluate_policy(model, positions[val_ids], actions[val_ids], offsets[val_ids.tolist() + [int(val_ids[-1]) + 1]] if False else np.array([0]), legal_flat, device, args.batch_size):.4f}" if False else "will be measured after training"))
     started = time.time()
     for epoch in range(1, args.epochs + 1):
         loss = train_epoch(model, optimizer, train_data[0], train_data[1],
