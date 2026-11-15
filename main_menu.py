@@ -42,6 +42,7 @@ class MainMenu:
         self._section(body, "TRAIN & EVALUATE", [
             ("Continue Stockfish-guided training", lambda: self.launch_script("train.py"), "Resume the main training run from its saved checkpoint"),
             ("Pretrain from human PGN games", lambda: self.launch_script("pretrain_human.py"), "Learn from master games in data/pgn"),
+            ("Pretrain checkmates from puzzles", lambda: self.launch_script("pretrain_checkmates.py"), "Learn mate-in-1, mate-in-2, and mate-in-3 patterns"),
             ("Combine latest + human-pretrained models", self.merge_models, "Create models/combined.pt using a configurable weight blend"),
             ("Compare checkpoints against Stockfish", lambda: self.launch_script("evaluate_stockfish.py"), "Run the paired benchmark and save a CSV"),
         ])
