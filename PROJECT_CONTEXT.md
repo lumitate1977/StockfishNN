@@ -703,3 +703,29 @@ If the output already exists, choose another output name or pass --overwrite onl
 2. Run the small smoke test and confirm each expected source loads and models/unified_test.pt is saved.
 3. If successful, run the default command to create models/unified.pt.
 4. Benchmark unified.pt against human_pretrained.pt, mate_pretrained.pt, and latest.pt with identical arena settings before choosing a default model.
+
+
+## 20. Unified trainer smoke test passed (2026-11-14)
+
+User ran the first end-to-end smoke test of train_unified.py on Windows. Command used a 50,000-row puzzle scan, 5,000 PGN position cap, 500 samples/source, one epoch, and output models/unified_test.pt.
+
+Observed results:
+- Device: CPU; base checkpoint models/human_pretrained.pt.
+- PGN: 5,000 positions from 63 completed games read from Anand.pgn.
+- Lichess puzzle CSV: 50,000 rows scanned; 49,555 classified usable puzzles; positions loaded: mate 26,916, tactics 71,648, endgame 15,632.
+- Replay: 22,422 positions; loader structural checks and teacher-move legality checks passed.
+- Balanced train/validation splits: human 4,487/513; mate 24,267/2,649; tactics 64,436/7,212; endgame 14,048/1,584; replay 20,180/2,242.
+- 500 samples were used from each source in the one training epoch.
+- Epoch policy losses: human 2.82993; tactics 3.16812; replay 2.96249; mate 3.46803; endgame 2.26435. Value losses: human 0.78941; replay 0.78762; puzzle sources 0.0 by design because puzzle CSV does not provide calibrated position value targets.
+- Validation legal top-1: human 19.30% (value MAE 0.6408); tactics 8.83%; replay 15.66% (value MAE 0.8453); mate 5.29%; endgame 16.54%.
+- Runtime 5.3 seconds. Saved successfully to models/unified_test.pt.
+
+Interpretation: end-to-end loading, training, validation, and checkpoint save all worked. These are initial imitation metrics from a tiny one-epoch smoke test, not playing-strength measurements. Puzzle validation accuracies are not directly comparable across source categories and do not establish reliable tactical or mate calculation.
+
+Next: run the fuller training configuration to create models/unified.pt, keeping unified_test.pt and all existing checkpoints. Suggested first full run:
+
+```powershell
+python .\\train_unified.py --puzzle-rows 100000 --max-pgn-positions 100000 --samples-per-source 10000 --epochs 3 --output models\\unified.pt
+```
+
+The full 1.18 GB puzzle CSV can be scanned with --puzzle-rows 0 if the user later chooses to process the entire file; start with the 100,000-row default for the next run. After training, benchmark unified.pt against human_pretrained.pt, mate_pretrained.pt, and latest.pt with identical arena settings before promoting it.
