@@ -454,3 +454,38 @@ python -m pip install -r requirements.txt
 
 ### Verification status
 These new files have been committed to GitHub but have not been executed on the user's Windows PC. The user must pull the changes locally before `main.bat` will exist in their local project. First smoke test: open the menu, launch Replay, then export a small archive to a new folder and verify the PGN opens in a chess PGN viewer.
+
+
+## 15. Combining latest and human-pretrained checkpoints (2026-11-14)
+
+Added `merge_checkpoints.py` and a matching action in `main_menu.py`.
+
+### What it does
+- Loads `models/latest.pt` and `models/human_pretrained.pt`.
+- Verifies both contain matching model-state keys, tensor shapes, and dtypes.
+- Linearly interpolates floating-point model parameters and buffers:
+  `combined = latest * (1 - human_weight) + human_pretrained * human_weight`.
+- Keeps non-floating buffers (such as BatchNorm counters) from `latest.pt`.
+- Saves to a separate output, default `models/combined.pt`.
+- Never overwrites either source checkpoint.
+- Does not combine optimizer states. If training resumes from the merged model, train.py creates a fresh optimizer; existing replay data remains as-is.
+
+### Usage
+From the project root:
+
+```powershell
+# Equal 50/50 blend
+python .\\merge_checkpoints.py
+
+# 70% latest + 30% human-pretrained
+python .\\merge_checkpoints.py --pretrained-weight 0.3 --output models\\combined_70_latest.pt
+```
+
+The `--pretrained-weight` value is the contribution from `human_pretrained.pt`: 0.0 means only latest, 0.5 means equal blend, and 1.0 means only human-pretrained.
+
+The main menu now includes **Combine latest + human-pretrained models** under Train & Evaluate. It asks for the human-pretrained contribution and output filename, then runs the merge in a separate console.
+
+### Important limitations
+This is parameter interpolation, not a true knowledge-preserving merge and not guaranteed to improve strength. Although both checkpoints use the same ChessNet architecture and likely share a common initialization, their training paths may have diverged. Benchmark `models/combined.pt` against both source checkpoints before using it as the primary model. Keep `models/latest.pt`, `models/human_pretrained.pt`, and replay data unchanged until the merged model proves better.
+
+The new script and menu integration are committed to GitHub but have not been executed on the user's PC.
