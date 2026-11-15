@@ -78,6 +78,7 @@ def main():
     parser.add_argument("--white-output", default="models/arena_white.pt")
     parser.add_argument("--black-output", default="models/arena_black.pt")
     parser.add_argument("--learning-rate", type=float, default=0.00001)
+    parser.add_argument("--overwrite-output", action="store_true", help="Allow replacing existing arena output checkpoints")
     parser.add_argument("--archive", default=str(ALL_GAMES_PATH.relative_to(ROOT)))
     args = parser.parse_args()
 
@@ -88,6 +89,22 @@ def main():
         parser.error("At least one side must be a neural-network checkpoint.")
     if args.train and not (white_sf or black_sf) and Path(args.white).resolve() == Path(args.black).resolve():
         parser.error("Training both sides requires two distinct checkpoint files.")
+    if args.train:
+        output_paths = []
+        for output in (args.white_output, args.black_output):
+            path = Path(output)
+            if not path.is_absolute():
+                path = ROOT / path
+            output_paths.append(path.resolve())
+        source_paths = {Path(args.white).resolve(), Path(args.black).resolve()}
+        if len(set(output_paths)) != len(output_paths):
+            parser.error("White and Black training outputs must be different files.")
+        if any(path in source_paths for path in output_paths):
+            parser.error("Arena outputs must not overwrite either source checkpoint.")
+        existing = [path for path in output_paths if path.exists()]
+        if existing and not args.overwrite_output:
+            parser.error("Arena output already exists: " + ", ".join(map(str, existing)) +
+                         ". Choose new --white-output/--black-output paths or pass --overwrite-output.")
 
     config = load_config()
     depth = args.depth if args.depth is not None else int(config.get("training_depth", 6))
