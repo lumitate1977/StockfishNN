@@ -219,7 +219,7 @@ def main():
     if not len(train_ids):
         raise RuntimeError("Not enough distinct puzzles for the requested validation split; lower --validation-fraction.")
     train_data = (positions[train_ids], actions[train_ids])
-    train_offsets_parts = [offsets[i:i + 2] for i in train_ids]
+    val_count = len(val_ids)
     train_legal_lists = [legal_flat[a:b] for a, b in
                          ((offsets[i], offsets[i + 1]) for i in train_ids)]
     train_offsets = np.zeros(len(train_ids) + 1, dtype=np.int64)
