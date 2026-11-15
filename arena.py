@@ -91,7 +91,12 @@ def main():
         parser.error("Training both sides requires two distinct checkpoint files.")
     if args.train:
         output_paths = []
-        for output in (args.white_output, args.black_output):
+        selected_outputs = []
+        if not white_sf:
+            selected_outputs.append(args.white_output)
+        if not black_sf:
+            selected_outputs.append(args.black_output)
+        for output in selected_outputs:
             path = Path(output)
             if not path.is_absolute():
                 path = ROOT / path
