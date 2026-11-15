@@ -148,6 +148,22 @@ def main():
     with chess.engine.SimpleEngine.popen_uci(str(stockfish_path)) as engine:
         configure_engine(engine, config, skill, threads, hash_mb)
         for game_number in range(1, args.games + 1):
+            swap_colors = game_number % 2 == 0
+            white_key = chess.BLACK if swap_colors else chess.WHITE
+            black_key = chess.WHITE if swap_colors else chess.BLACK
+            white_is_sf = black_sf if swap_colors else white_sf
+            black_is_sf = white_sf if swap_colors else black_sf
+            game_models = {}
+            game_paths = {}
+            game_optimizers = {}
+            if not white_is_sf:
+                game_models[chess.WHITE] = models[white_key]
+                game_paths[chess.WHITE] = paths[white_key]
+                game_optimizers[chess.WHITE] = optimizers[white_key]
+            if not black_is_sf:
+                game_models[chess.BLACK] = models[black_key]
+                game_paths[chess.BLACK] = paths[black_key]
+                game_optimizers[chess.BLACK] = optimizers[black_key]
             board = chess.Board()
             evaluations_white: list[int] = []
             move_records = {chess.WHITE: [], chess.BLACK: []}
@@ -155,8 +171,8 @@ def main():
             pgn.headers["Event"] = "StockfishNN Arena"
             pgn.headers["Site"] = "StockfishNN"
             pgn.headers["Round"] = str(game_number)
-            pgn.headers["White"] = "Stockfish" if white_sf else paths[chess.WHITE].stem
-            pgn.headers["Black"] = "Stockfish" if black_sf else paths[chess.BLACK].stem
+            pgn.headers["White"] = "Stockfish" if white_is_sf else game_paths[chess.WHITE].stem
+            pgn.headers["Black"] = "Stockfish" if black_is_sf else game_paths[chess.BLACK].stem
             pgn.headers["AnalysisDepth"] = str(depth)
             node = pgn
             cpls = {chess.WHITE: [], chess.BLACK: []}
@@ -167,8 +183,8 @@ def main():
                 if not evaluations_white:
                     pgn.comment = f"[%eval {best_cp / 100:+.2f}] Starting position"
                 mover = board.turn
-                if mover in models:
-                    move = choose_move(models[mover], board, device, temperature=0.0)
+                if mover in game_models:
+                    move = choose_move(game_models[mover], board, device, temperature=0.0)
                 else:
                     pv = info.get("pv", [])
                     move = pv[0] if pv else engine.play(board, chess.engine.Limit(depth=depth)).move
@@ -184,11 +200,11 @@ def main():
                 snapshot = board.copy(stack=False)
                 board.push(move)
                 cpls[mover].append(cpl)
-                if mover in models:
+                if mover in game_models:
                     move_records[mover].append((snapshot, move, cpl))
                 node = node.add_variation(move)
                 white_eval_after = played_cp if mover == chess.WHITE else -played_cp
-                actor = "Stockfish" if mover not in models else paths[mover].stem
+                actor = "Stockfish" if mover not in game_models else game_paths[mover].stem
                 node.comment = (
                     f"[%eval {white_eval_after / 100:+.2f}] {actor} centipawn loss: {cpl} cp "
                     f"(analysis depth {depth})"
@@ -227,18 +243,21 @@ def main():
                     score = side_result(result, color)
                     if result == "*":
                         score = math.tanh((evaluations_white[-1] if color == chess.WHITE else -evaluations_white[-1]) / 600.0)
-                    optimize_game(models[color], optimizers[color], move_records[color], score, device)
-                for color, output in ((chess.WHITE, args.white_output), (chess.BLACK, args.black_output)):
-                    if color not in models:
+                    optimize_game(game_models[color], game_optimizers[color], move_records[color], score, device)
+                for color in (chess.WHITE, chess.BLACK):
+                    if color not in game_models:
                         continue
+                    original_key = white_key if color == chess.WHITE else black_key
+                    output = args.white_output if original_key == chess.WHITE else args.black_output
                     output_path = Path(output)
                     if not output_path.is_absolute():
                         output_path = ROOT / output_path
-                    save_trained(output_path, models[color], optimizers[color], {
+                    opponent_is_sf = black_is_sf if color == chess.WHITE else white_is_sf
+                    save_trained(output_path, game_models[color], game_optimizers[color], {
                         "training_mode": "arena_policy_gradient",
-                        "opponent": "Stockfish" if (black_sf if color == chess.WHITE else white_sf) else "neural_network",
+                        "opponent": "Stockfish" if opponent_is_sf else "neural_network",
                         "games_trained": game_number,
-                        "source_checkpoint": str(paths[color]),
+                        "source_checkpoint": str(paths[original_key]),
                         "stockfish_depth": depth,
                         "stockfish_skill": skill,
                     })
@@ -248,7 +267,8 @@ def main():
                 if result == "*":
                     continue
                 key = "w" if score > 0 else "l" if score < 0 else "d"
-                totals[color][key] += 1
+                original_key = white_key if color == chess.WHITE else black_key
+                totals[original_key][key] += 1
 
     print("\nCompleted-game results:")
     for color, label, is_sf in ((chess.WHITE, "White", white_sf), (chess.BLACK, "Black", black_sf)):
