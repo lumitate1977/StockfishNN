@@ -119,7 +119,7 @@ def main():
     print(f"Device: {device} | Stockfish analysis depth: {depth} | games: {args.games}")
     print(f"White: {'Stockfish' if white_sf else paths[chess.WHITE].name}")
     print(f"Black: {'Stockfish' if black_sf else paths[chess.BLACK].name}")
-    print("Stockfish analyzes every position for evaluations and per-move CPL.")
+    print("Stockfish analyzes every position; CPL compares the best root evaluation with a search restricted to the move actually played.")
     if args.train:
         print("TRAINING ENABLED: source checkpoints are not overwritten; updated copies go to the output paths.")
 
@@ -141,8 +141,9 @@ def main():
 
             while not board.is_game_over(claim_draw=False) and len(board.move_stack) < args.max_plies:
                 info = engine.analyse(board, chess.engine.Limit(depth=depth))
-                before_cp = eval_cp(info, board)
-                evaluations_white.append(before_cp if board.turn else -before_cp)
+                best_cp = eval_cp(info, board)
+                if not evaluations_white:
+                    pgn.comment = f"[%eval {best_cp / 100:+.2f}] Starting position"
                 mover = board.turn
                 if mover in models:
                     move = choose_move(models[mover], board, device, temperature=0.0)
@@ -151,17 +152,20 @@ def main():
                     move = pv[0] if pv else engine.play(board, chess.engine.Limit(depth=depth)).move
                 if move not in board.legal_moves:
                     raise RuntimeError(f"Illegal move returned for {'White' if mover else 'Black'}: {move}")
+                # Same-root comparison: best evaluation versus the played move.
+                played_info = engine.analyse(
+                    board, chess.engine.Limit(depth=depth), root_moves=[move]
+                )
+                played_cp = eval_cp(played_info, board)
+                cpl = max(0, min(20000, best_cp - played_cp))
+                evaluations_white.append(best_cp if mover == chess.WHITE else -best_cp)
                 snapshot = board.copy(stack=False)
                 board.push(move)
-                after_info = engine.analyse(board, chess.engine.Limit(depth=depth))
-                after_cp = eval_cp(after_info, board)
-                after_for_mover = -after_cp
-                cpl = max(0, min(20000, before_cp - after_for_mover))
                 cpls[mover].append(cpl)
                 if mover in models:
                     move_records[mover].append((snapshot, move, cpl))
                 node = node.add_variation(move)
-                white_eval_after = after_cp if board.turn == chess.WHITE else -after_cp
+                white_eval_after = played_cp if mover == chess.WHITE else -played_cp
                 actor = "Stockfish" if mover not in models else paths[mover].stem
                 node.comment = (
                     f"[%eval {white_eval_after / 100:+.2f}] {actor} centipawn loss: {cpl} cp "
