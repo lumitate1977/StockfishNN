@@ -238,7 +238,7 @@ def main():
 
             if args.train:
                 for color in (chess.WHITE, chess.BLACK):
-                    if color not in models:
+                    if color not in game_models:
                         continue
                     score = side_result(result, color)
                     if result == "*":
