@@ -303,7 +303,7 @@ python .\\arena.py --white models/latest.pt --black models/human_pretrained.pt -
 python .\\arena.py --white models/human_pretrained.pt --black stockfish --games 100 --train --white-output models/human_vs_stockfish.pt
 ```
 
-Arena training applies a simple policy-gradient update to each participating model after each game. The reward blends game outcome with the move's Stockfish CPL quality. This is an experimental baseline, not a mature self-play algorithm or a guarantee of improvement. Start with a small run (e.g. 10–20 games) and compare the output checkpoint against its source before scaling up. Existing input checkpoints are never overwritten by the default arena outputs; if an output file already exists, the script refuses to overwrite it unless `--overwrite-output` is explicitly supplied.
+Arena games alternate the neural-network players' colors across successive games to reduce first-player/color bias. Arena training applies a simple policy-gradient update to each participating model after each game. The reward blends game outcome with the move's Stockfish CPL quality. This is an experimental baseline, not a mature self-play algorithm or a guarantee of improvement. Start with a small run (e.g. 10–20 games) and compare the output checkpoint against its source before scaling up. Existing input checkpoints are never overwritten by the default arena outputs; if an output file already exists, the script refuses to overwrite it unless `--overwrite-output` is explicitly supplied.
 
 The replay viewer already reads PGN archives. Arena games carry player names, result, average/max CPL for both colors, and per-move Stockfish evaluation/CPL comments. The replay UI has been updated to display those fields.
 
