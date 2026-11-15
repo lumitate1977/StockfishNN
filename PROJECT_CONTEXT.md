@@ -546,3 +546,41 @@ If the CSV's FEN is already after the opponent setup move, pass \`--no-skip-setu
 - The script and menu integration are committed to GitHub but have not been run on the user's Windows PC.
 
 The main menu now includes **Pretrain checkmates from puzzles** under Train & Evaluate.
+
+
+## 18. Multi-checkpoint weighted blending (2026-11-14)
+
+Expanded checkpoint blending from a fixed two-model operation to a selectable weighted blend of any two or more compatible checkpoints.
+
+### Files updated
+- \`merge_checkpoints.py\` — accepts repeated \`--model PATH=PERCENT\` arguments and blends any number of model state dictionaries.
+- \`main_menu.py\` — **Combine selected models (weighted)** opens a scrollable checkpoint selector with checkboxes and percentage sliders.
+- \`PROJECT_CONTEXT.md\` — records the new interface, CLI, safety rules, and limitations.
+
+### Menu workflow
+1. The dialog scans \`models/*.pt\` and lists the available checkpoints.
+2. Select any two or more checkpoints.
+3. Adjust each selected model's percentage with its slider.
+4. The selected percentages must total exactly 100%; the dialog displays the running total and whether it is ready.
+5. Choose a new output filename. The output is saved as a separate checkpoint.
+
+The initial slider values favor a three-way blend when \`latest.pt\`, \`human_pretrained.pt\`, and \`mate_pretrained.pt\` are present (34%, 33%, 33%). Other discovered checkpoints are available too. Unselected models are ignored.
+
+### CLI examples
+
+\`\`\`powershell
+# Equal three-way blend
+python .\\merge_checkpoints.py --model models\\latest.pt=34 --model models\\human_pretrained.pt=33 --model models\\mate_pretrained.pt=33 --output models\\combined_three.pt
+
+# Blend four checkpoints
+python .\\merge_checkpoints.py --model models\\latest.pt=40 --model models\\human_pretrained.pt=25 --model models\\mate_pretrained.pt=25 --model models\\cycle_0010.pt=10 --output models\\combined_four.pt
+\`\`\`
+
+Weights must add to 100%. At least two selected models must have a non-zero weight. All selected checkpoints must contain compatible model-state keys, tensor shapes, and dtypes. Floating/complex tensors are blended by weighted sum. Integer and boolean buffers (including BatchNorm counters) are copied from the highest-weight checkpoint. Optimizer states are not merged.
+
+### Compatibility and data safety
+- The old two-model command-line arguments remain supported for compatibility.
+- The output must be distinct from every source checkpoint; existing output files are protected unless \`--overwrite\` is explicitly passed.
+- No source checkpoint, historical checkpoint, PGN archive, or replay buffer is modified.
+- This is parameter interpolation, not a true knowledge-preserving merge. Blending checkpoints from different training trajectories can damage performance; test the output against each source before using it.
+- New implementation has been committed to GitHub but has not been run on the user's Windows PC.
