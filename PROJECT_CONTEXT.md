@@ -183,7 +183,7 @@ data/
 
 The script supports standard `.pgn` and gzip-compressed `.pgn.gz` files and searches the input directory recursively. If a download is a ZIP archive, extract it first; ZIP input is not documented as supported.
 
-The proposed initial collection from PGN Mentor includes games by Carlsen, Caruana, Anand, and Fischer, with selected World Championship collections as optional additions. The user has now reported that PGN training has been completed locally. Exact local PGN filenames/counts and the saved output path have not yet been independently verified.
+The proposed initial collection from PGN Mentor includes games by Carlsen, Caruana, Anand, and Fischer, with selected World Championship collections as optional additions. The user reports that PGN training has completed locally. The expected candidate checkpoint is `models/human_pretrained.pt`; exact local file presence and training log have not been independently verified.
 
 PGN source previously recommended:
 https://www.pgnmentor.com/files.html
@@ -209,7 +209,7 @@ This is imitation learning from recorded games. It complements, but does not rep
 - It refuses to overwrite an existing output unless `--overwrite` is supplied.
 - It does not intentionally modify the main checkpoint or replay buffer.
 
-The script was committed to GitHub. The user has now reported that PGN pretraining completed locally. Treat this as user-reported completion; the assistant has not independently inspected the local checkpoint or training log.
+The script was committed to GitHub. The user reports PGN pretraining completed locally. Treat completion as user-reported; the assistant has not independently inspected the local checkpoint or training log.
 
 ### Intended first-run commands
 
@@ -242,8 +242,14 @@ If `models/human_pretrained.pt` already exists, use a different `--output` path 
 - [x] Save to a separate checkpoint by default.
 - [x] User reports downloading PGNs and completing the local PGN pretraining run.
 - [x] User reports that the PGN training run completed; local logs/checkpoint have not been independently verified.
-- [x] Add a separate Stockfish evaluation script for comparing the original and PGN-pretrained checkpoints.
-- [ ] Run `evaluate_stockfish.py` locally and inspect the results.
+- [x] Add `evaluate_stockfish.py` for a simple checkpoint-vs-Stockfish comparison.
+- [x] Add `arena.py` for neural-network-vs-neural-network and neural-network-vs-Stockfish games.
+- [x] Add Stockfish same-root move analysis and per-move CPL annotations to arena PGNs.
+- [x] Make arena PGNs compatible with the existing replay archive.
+- [x] Update replay list/details to display both player names and per-side CPL.
+- [x] Add checkpoint selection to the Play GUI so the user can play against any `.pt` checkpoint.
+- [x] Add optional arena policy-gradient training that writes to separate output checkpoints and protects source checkpoints.
+- [ ] Run the new arena, GUI, and training features locally; they have not been locally tested.
 - [ ] Decide whether to use the pretrained checkpoint as the base for further Stockfish/RL training.
 
 ### Comparing the original and PGN-pretrained checkpoints
@@ -269,6 +275,41 @@ python .\\evaluate_stockfish.py --games-per-model 30
 The defaults read Stockfish skill, depth, threads, hash, and executable path from `config.json`. You can override these with `--depth`, `--skill`, `--threads`, and `--hash-mb`. Both checkpoints must exist locally. The baseline is expected to be the untouched pre-PGN `models/latest.pt`; do not run normal training or promote the candidate before completing this comparison.
 
 A small 10-game-per-model result is an initial signal, not a statistically strong rating estimate. If results are close, increase to 30–50 games per model and consider a second test at a stronger fixed Stockfish setting.
+
+### Arena matches, detailed analysis, and arena training
+
+The repository now contains `arena.py`. It supports:
+- Neural network vs neural network.
+- Neural network vs Stockfish.
+- Detailed PGN archiving into `games/all_games.pgn` (or a custom `--archive`).
+- Stockfish evaluation annotations and per-move CPL.
+- Optional training of the participating neural network(s).
+
+CPL is calculated by comparing Stockfish's unrestricted best evaluation at a position with a second search at the same root restricted to the move actually played. This is more meaningful than simply comparing evaluations before and after a move. It remains dependent on analysis depth and can be noisy at shallow depth.
+
+Examples from the project directory:
+
+```powershell
+# Compare the original and PGN-pretrained networks; archive games for replay
+python .\\arena.py --white models/latest.pt --black models/human_pretrained.pt --games 10
+
+# PGN-pretrained network against Stockfish
+python .\\arena.py --white models/human_pretrained.pt --black stockfish --games 10
+
+# Train both networks against each other; source checkpoints are preserved
+python .\\arena.py --white models/latest.pt --black models/human_pretrained.pt --games 100 --train --white-output models/arena_latest.pt --black-output models/arena_human.pt
+
+# Train the PGN model against Stockfish into a separate output checkpoint
+python .\\arena.py --white models/human_pretrained.pt --black stockfish --games 100 --train --white-output models/human_vs_stockfish.pt
+```
+
+Arena training applies a simple policy-gradient update to each participating model after each game. The reward blends game outcome with the move's Stockfish CPL quality. This is an experimental baseline, not a mature self-play algorithm or a guarantee of improvement. Start with a small run (e.g. 10–20 games) and compare the output checkpoint against its source before scaling up. Existing input checkpoints are never overwritten by the default arena outputs; if an output file already exists, the script refuses to overwrite it unless `--overwrite-output` is explicitly supplied.
+
+The replay viewer already reads PGN archives. Arena games carry player names, result, average/max CPL for both colors, and per-move Stockfish evaluation/CPL comments. The replay UI has been updated to display those fields.
+
+The Play GUI now has a **Load checkpoint…** button. Start `play_gui.py`, choose any checkpoint under `models` (including `human_pretrained.pt`, `arena_white.pt`, etc.), and start a new game against that model.
+
+None of these new features has yet been run on the user's local PC. Confirm local Git synchronization, install dependencies if needed, and smoke-test with one or two games before a longer run. Arena games are appended to the selected PGN archive; they do not change model checkpoints unless `--train` is used.
 
 ## 9. Chess knowledge curriculum
 
@@ -330,12 +371,16 @@ If the stash was created, do not blindly run `git stash pop`: the remote and loc
 
 ## 12. Immediate next steps
 
-1. Finish Git synchronization safely. Check whether the previous stash/pull completed.
-2. Run `python .\\evaluate_stockfish.py --games-per-model 10` locally to compare `models/latest.pt` against `models/human_pretrained.pt`.
-3. Review `evaluation_results.csv`; if results are close or noisy, repeat with 30–50 games per model.
-4. Confirm the baseline checkpoint is still the original pre-PGN model and that the replay buffer remains unchanged.
-5. Only if the pretrained checkpoint performs acceptably, decide whether to use it as the starting point for continued Stockfish-guided training.
-6. After this is validated, prioritize tactical puzzle training and then endgame knowledge.
+1. Synchronize the local working copy with GitHub safely; check the earlier stash/pull state before popping or discarding anything.
+2. Confirm `models/latest.pt` and `models/human_pretrained.pt` exist locally.
+3. Run a short model-vs-model arena match:
+   ```powershell
+   python .\\arena.py --white models/latest.pt --black models/human_pretrained.pt --games 2
+   ```
+4. Open `replay.bat` and verify the new match appears with per-move CPL and evaluations.
+5. Open `play.bat`, use **Load checkpoint…**, and select the human-pretrained checkpoint.
+6. After the arena path is verified, try a small training run to separate output checkpoints; compare the trained copies against their source checkpoints before increasing games.
+7. Only after these checks, decide how to integrate arena training with the main Stockfish replay training and expand the tactics/endgame curriculum.
 
 ## 13. User preferences and implementation rules
 
