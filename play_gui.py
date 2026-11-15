@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from pathlib import Path
 
 import chess
@@ -76,6 +76,7 @@ class ChessWindow:
         ttk.Button(controls, text="New game", command=self.new_game).pack(side="left")
         ttk.Button(controls, text="Undo turn", command=self.undo_turn).pack(side="left", padx=8)
         ttk.Button(controls, text="Replay archive", command=self.open_replay).pack(side="left", padx=8)
+        ttk.Button(controls, text="Load checkpoint…", command=self.load_checkpoint).pack(side="left", padx=8)
         self.status = tk.Label(
             self.root,
             text="Your move",
@@ -264,6 +265,28 @@ class ChessWindow:
         self.update_status()
         self.draw_board()
         self.maybe_start_ai()
+
+
+    def load_checkpoint(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Choose a StockfishNN checkpoint",
+            initialdir=str(ROOT / "models"),
+            filetypes=[("PyTorch checkpoints", "*.pt"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            model, device, metadata = load_model(path)
+        except Exception as exc:
+            messagebox.showerror("Could not load checkpoint", str(exc), parent=self.root)
+            return
+        self.model, self.device, self.metadata = model, device, metadata
+        self.new_game()
+        self.info.config(
+            text=f"Checkpoint: {Path(path).name} | "
+                 f"{metadata.get('cycles_completed', metadata.get('games_trained', 0))} training cycles/games"
+        )
 
     def open_replay(self) -> None:
         replay_script = ROOT / "replay_gui.py"
