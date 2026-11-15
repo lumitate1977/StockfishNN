@@ -584,3 +584,70 @@ Weights must add to 100%. At least two selected models must have a non-zero weig
 - No source checkpoint, historical checkpoint, PGN archive, or replay buffer is modified.
 - This is parameter interpolation, not a true knowledge-preserving merge. Blending checkpoints from different training trajectories can damage performance; test the output against each source before using it.
 - New implementation has been committed to GitHub but has not been run on the user's Windows PC.
+
+## 18. Unified-model training preparation — 2026-11-14
+
+The goal is to train one compatible `ChessNet` on a balanced mixture of chess knowledge sources, rather than blending independently trained checkpoint weights.
+
+### Local data inventory reported by the user
+
+- Master-game PGNs under `data/pgn/`: Anand, Carlsen, Caruana, Fischer, WorldChamp2023, and WorldChamp2024.
+- Lichess puzzle CSV: `data/puzzles/lichess_db_puzzle.csv` (approximately 1.18 GB).
+- Replay candidates:
+  - `data/replay_buffer.npz`
+  - `data/replay_buffer_eval_v2.npz`
+  - `data/replay_buffer_move_game_v3.npz`
+
+### Checkpoints reported locally
+
+- `models/latest.pt`
+- `models/human_pretrained.pt`
+- `models/mate_pretrained.pt`
+- `models/combined.pt`
+- `models/cycle_0527.pt`
+- `models/mate_test.pt`
+
+The user reports completing human-PGN pretraining and checkmate-puzzle pretraining. The checkmate checkpoint reports a validation top-1 move accuracy of approximately 18.45% over 2,591 validation positions. Treat this as a baseline metric only; it does not establish reliable mate-solving ability.
+
+### Replay validation results
+
+The user ran a read-only NumPy inspection of `data/replay_buffer.npz`. It contains:
+
+- `positions`: shape `(22422, 18, 8, 8)`, uint8
+- `teacher`: shape `(22422,)`, int32
+- `values`: shape `(22422,)`, float32
+- `chosen`: shape `(22422,)`, int32
+- `rewards`: shape `(22422,)`, float32
+- `legal_offsets`: shape `(22423,)`, int32
+- `legal_actions`: shape `(696185,)`, int32
+
+The follow-up validation reported:
+- Teacher action range: 1–19,967; no action outside 0–20,479.
+- Chosen action range: -1–17,221; -1 is the expected sentinel for no selected action.
+- Value and reward ranges: both -1.0 to 1.0.
+- No empty legal-action lists.
+- No invalid teacher, chosen, or legal-action indices.
+- No non-finite value targets.
+
+This is a strong initial indication that `replay_buffer.npz` is structurally usable. Before training, a loader should still verify exact array-length agreement, monotonic offsets, final offset equal to the legal-action array length, and that each teacher action occurs in its position's legal-action slice.
+
+Two other replay files failed read-only loading:
+- `replay_buffer_eval_v2.npz`: EOF while reading compressed array data.
+- `replay_buffer_move_game_v3.npz`: decompression error / invalid block type.
+
+Do not delete, overwrite, repair in place, or use these two files as training inputs unless separately backed up and successfully validated. Preserve all replay files regardless.
+
+### Unified training design
+
+The intended unified model will start from `models/human_pretrained.pt`, not from a weighted average of checkpoints. It should train the existing architecture with balanced/interleaved batches from:
+1. Human/master PGN positions.
+2. Lichess checkmate puzzles (mate-in-1/2/3).
+3. Other tactical puzzle themes.
+4. Endgame puzzle themes.
+5. The validated `data/replay_buffer.npz`, if all structural and semantic checks pass.
+
+The first output should be a new file, `models/unified.pt`. It must not overwrite any source checkpoint, the main `latest.pt`, or any replay file. Keep the existing 18-plane encoder, 20,480-action move encoding, and network architecture unchanged.
+
+A mixed-source trainer should prevent the large puzzle CSV from overwhelming the smaller sources by sampling a controlled amount from each category per epoch/batch. It should report validation results separately by source so gains in one area do not hide forgetting in another. Puzzle validation should split by puzzle identity, not by individual positions from the same puzzle.
+
+The unified trainer has not yet been implemented or run. The next development step is to add this separate trainer and update this context again with its exact command-line options. No local files have been changed by the GitHub context update.
