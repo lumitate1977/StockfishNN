@@ -356,7 +356,7 @@ class ReplayWindow:
 
         node = self.nodes[self.position_index]
         eval_match = re.search(r"\[%eval\s+([+-]?(?:\d+(?:\.\d+)?|#-?\d+))\]", node.comment or "")
-        cpl_match = re.search(r"(NN|Stockfish) centipawn loss:\s*(\d+)\s*cp", node.comment or "")
+        cpl_match = re.search(r"(.+?) centipawn loss:\s*(\d+)\s*cp", node.comment or "")
         if eval_match:
             self.eval_label.config(text=f"Stockfish evaluation (White's perspective): {eval_match.group(1)}")
         elif node.comment:
