@@ -139,15 +139,16 @@ class MainMenu:
 
         entries = []
         default_paths = ["latest.pt", "human_pretrained.pt", "mate_pretrained.pt"]
-        existing_defaults = [p for p in available if p.name in default_paths]
+        existing_defaults = [models_dir / name for name in default_paths if (models_dir / name).is_file()]
         other_paths = [p for p in available if p not in existing_defaults]
         ordered = existing_defaults + other_paths
+        default_count = len(existing_defaults)
+        base_weight = 100 // max(1, default_count)
+        remainder = 100 % max(1, default_count)
         for index, path in enumerate(ordered):
-            default_selected = path.name in default_paths and path.name in {
-                "latest.pt", "human_pretrained.pt", "mate_pretrained.pt"
-            }
+            default_selected = path in existing_defaults
             selected = tk.BooleanVar(value=default_selected)
-            weight = tk.IntVar(value=34 if index == 0 else 33 if index < 3 else 0)
+            weight = tk.IntVar(value=(base_weight + (1 if index < remainder else 0)) if default_selected else 0)
             row = tk.Frame(inner, bg=PANEL, padx=10, pady=8)
             row.pack(fill="x", pady=3)
             check = tk.Checkbutton(row, text=path.name, variable=selected, bg=PANEL, fg=FG,
