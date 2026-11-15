@@ -760,3 +760,67 @@ Before modifying anything, make backups of `train.py`, `models/latest.pt`, and t
 
 After implementation, provide exact installation and launch commands for Windows PowerShell.
 
+## 15. Human PGN Pretraining — Implemented
+
+The repository now includes `pretrain_human.py`, a separate supervised pretraining program for human/master games.
+
+### Data location and formats
+
+- Put downloaded game files in `data/pgn/`.
+- Supported inputs: `.pgn` and gzip-compressed `.pgn.gz`.
+- The script searches the folder recursively.
+- It uses each game's mainline only; side variations are ignored.
+- Games with an unfinished result (`*`) are skipped.
+- Optional `--min-elo` requires both players to have Elo ratings at or above the chosen threshold.
+
+### What it teaches
+
+For every mainline position, the script:
+1. Encodes the board with the existing 18-plane encoder.
+2. Uses the human move as the policy target.
+3. Builds the legal-move set for that position and masks illegal actions in the policy loss.
+4. Uses the final game result as a value target from the side-to-move perspective.
+5. Fine-tunes the existing `ChessNet` architecture.
+
+This is supervised imitation of recorded games, not a replacement for Stockfish evaluation, replay training, or self-play. Game-outcome value targets are comparatively coarse and do not provide Stockfish's position-level evaluation.
+
+### Safe checkpoint behavior
+
+- Default starting checkpoint: `config.json`'s `model_path` (currently `models/latest.pt`).
+- Default output: `models/human_pretrained.pt`.
+- The script refuses to use the same path for input and output.
+- It refuses to overwrite an existing output unless `--overwrite` is supplied.
+- It does not write to the main checkpoint or replay buffer.
+- The user should evaluate the separate pretrained checkpoint before choosing to promote it.
+
+### Example commands (PowerShell)
+
+From the StockfishNN project directory:
+
+```powershell
+New-Item -ItemType Directory -Force .\data\pgn
+# Place downloaded .pgn or .pgn.gz files in .\data\pgn
+python .\pretrain_human.py --pgn-dir .\data\pgn --epochs 3 --max-positions 100000
+```
+
+Optional stronger-game filter:
+
+```powershell
+python .\pretrain_human.py --pgn-dir .\data\pgn --min-elo 2200 --epochs 3
+```
+
+If `models/human_pretrained.pt` already exists, choose a different `--output` path or explicitly pass `--overwrite`.
+
+### Current status
+
+- [x] Add separate PGN pretraining script.
+- [x] Preserve the current model architecture and checkpoint format.
+- [x] Mask illegal moves during supervised policy training.
+- [x] Support PGN and gzip-compressed PGN input.
+- [x] Save to a separate checkpoint and protect `models/latest.pt`.
+- [ ] Add/download a suitable master-game PGN collection.
+- [ ] Run a small smoke test on the user's local machine.
+- [ ] Evaluate the pretrained checkpoint against the unmodified model.
+- [ ] Decide whether to promote the pretrained checkpoint for continued Stockfish/self-play training.
+
+The GitHub source update does not download PGNs, run training on the user's PC, or change local checkpoints/replay data. Those remain local operations.
