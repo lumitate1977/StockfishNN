@@ -187,10 +187,13 @@ class ReplayWindow:
             result = headers.get("Result", "*")
             ai_result = headers.get("AIGameResult", "?")
             ai_color = headers.get("AIColor", "?")
-            avg_cpl = headers.get("AvgAICPL", "—")
-            cycle = headers.get("TrainingCycle", "?")
+            avg_cpl = headers.get("AvgAICPL", headers.get("AvgCPL", "—"))
+            cycle = headers.get("TrainingCycle", headers.get("Round", "?"))
             quality = " ★" if headers.get("GoodGame", "false").lower() == "true" else ""
-            label = f"Cycle {cycle} | {result} | NN {ai_result} ({ai_color}) | {avg_cpl} cp{quality}"
+            label = (
+                f"{headers.get('White', 'White')} vs {headers.get('Black', 'Black')} | "
+                f"{result} | avg CPL {avg_cpl}{quality}"
+            )
             self.game_list.insert(tk.END, label)
         if self.games:
             self.status_label.config(text=f"Loaded {len(self.games)} game(s) from {archive_path.relative_to(archive_path.parent.parent)}")
@@ -285,14 +288,15 @@ class ReplayWindow:
         white = headers.get("White", "White")
         black = headers.get("Black", "Black")
         result = headers.get("Result", "*")
-        avg_cpl = headers.get("AvgAICPL", "—")
+        avg_cpl = headers.get("AvgAICPL", headers.get("AvgCPL", "—"))
         result_display = "Unfinished (training move limit)" if result == "*" else result
         self.title_label.config(text=f"{white} vs {black}  ·  {result_display}")
         self.details_label.config(
             text=(
-                f"Cycle {headers.get('TrainingCycle', '?')} / Game {headers.get('GameNumber', '?')}  ·  "
-                f"NN played {headers.get('AIColor', '?')}  ·  NN result: {headers.get('AIGameResult', '?')}  ·  "
-                f"Average NN centipawn loss: {avg_cpl}  ·  "
+                f"Round {headers.get('Round', headers.get('GameNumber', '?'))}  ·  "
+                f"White avg CPL: {headers.get('AvgWhiteCPL', '—')}  ·  "
+                f"Black avg CPL: {headers.get('AvgBlackCPL', '—')}  ·  "
+                f"Average CPL: {avg_cpl}  ·  "
                 f"{headers.get('Termination', 'Termination: not recorded')}"
             )
         )
